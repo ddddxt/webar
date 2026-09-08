@@ -1,13 +1,25 @@
 import * as THREE from 'three';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+//import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { VRButton } from 'three/addons/webxr/VRButton.js';
 
+const loader = new GLTFLoader();
+const dracoLoader = new DRACOLoader();
+dracoLoader.setDecoderPath('./draco/');
+
+// 3. 把 Draco 解压器绑到 GLTF 加载器上（新增）
+
+
+loader.setDRACOLoader(dracoLoader);
+//loader.setMeshoptDecoder(MeshoptDecoder);
 
 // ==================== 诊断面板 ====================
 const debugDiv = document.createElement('div');
-debugDiv.style.cssText = 'position:fixed;top:10px;right:10px;background:rgba(0,0,0,0.85);color:#00ff00;font-family:monospace;font-size:13px;padding:12px;z-index:9999;pointer-events:none;white-space:pre;line-height:1.6;border-radius:8px;max-width:340px;';
+debugDiv.style.cssText = 'position:fixed;top:10px;right:10px;background:rgba(244, 244, 244, 0.85);color:#00ff00;font-family:monospace;font-size:13px;padding:12px;z-index:9999;pointer-events:none;white-space:pre;line-height:1.6;border-radius:8px;max-width:340px;';
 document.body.appendChild(debugDiv);
 let debugLines = [];
 function setDebug(key, value) { debugLines.push(`${key}: ${value}`); }
@@ -40,8 +52,8 @@ function initVRDebug() {
 
 // ==================== 基础场景 ====================
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xfcfdec);
-scene.fog = new THREE.FogExp2(0x050b1a, 0.008);
+scene.background = new THREE.Color(	0xf5f5f0);//场景背景颜色
+//scene.fog = new THREE.FogExp2(0x050b1a, 0.008);
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 camera.position.set(0, 1.6, 5);
@@ -52,6 +64,10 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;   // 正确的色彩输出
+renderer.toneMapping = THREE.ACESFilmicToneMapping; // 更自然的色调映射
+renderer.toneMappingExposure = 1.0;
+
 renderer.xr.enabled = true;
 document.body.appendChild(renderer.domElement);
 
@@ -72,13 +88,15 @@ const videoElement = document.getElementById('museum-video');
 const videoTexture = new THREE.VideoTexture(videoElement);
 
 // 视频屏幕
-const screenGeo = new THREE.PlaneGeometry(3.2, 1.8);
+const screenGeo = new THREE.PlaneGeometry(3.2, 1.8, 1);
 const screenMat = new THREE.MeshBasicMaterial({ 
     map: videoTexture,
     side: THREE.DoubleSide
 });
 const videoScreen = new THREE.Mesh(screenGeo, screenMat);
-videoScreen.position.set(0, 2.0, -3);
+// 把 x 改为你要的值：例如 -1 向左，+1 向右（z 保持 -3，不改变远近）
+videoScreen.position.set(-7, 2.3, 2);
+videoScreen.rotation.y = Math.PI / 2;
 scene.add(videoScreen);
 
 // 视频边框
@@ -86,7 +104,9 @@ const borderGeo = new THREE.PlaneGeometry(3.4, 2.0);
 const borderMat = new THREE.MeshBasicMaterial({ color: 0x222222 });
 const videoBorder = new THREE.Mesh(borderGeo, borderMat);
 videoBorder.position.copy(videoScreen.position);
-videoBorder.position.z -= 0.02;
+videoBorder.position.x -= 0.04;
+// 同步边框旋转
+videoBorder.rotation.copy(videoScreen.rotation);
 scene.add(videoBorder);
 
 // 3D 提示文字
@@ -226,9 +246,14 @@ renderer.xr.addEventListener('sessionstart', () => {
     if (btn) btn.textContent = '⏏️ 退出 VR 模式';
     if (status) status.textContent = '● VR 模式已激活';
 
-    artifactItems.forEach(item => {
+     artifactItems.forEach((item, index) => {
         if (item.label) item.label.element.style.display = 'none';
         if (item.vrLabel) item.vrLabel.visible = false;
+        // 调试用：看文物整体尺寸
+        const box = new THREE.Box3().setFromObject(item.root);
+        const size = new THREE.Vector3();
+        box.getSize(size);
+        console.log(index, item.data.name, '尺寸:', size, '根节点:', item.root.name);
     });
 
     controller1.addEventListener('selectstart', onVRSelectStart);
@@ -243,7 +268,9 @@ renderer.xr.addEventListener('sessionend', () => {
 
     if (heldItem) forceDropItem();
     if (flyingItem) {
-        flyingItem.mesh.position.copy(flyingItem.mesh.parent.worldToLocal(flyTargetPos.clone()));
+        flyingItem.root.position.copy(
+            flyingItem.root.parent.worldToLocal(flyTargetPos.clone())
+        );
         flyingItem = null;
     }
 
@@ -292,43 +319,182 @@ document.getElementById('vr-btn').addEventListener('click', async () => {
     }
 });
 
-// ==================== 灯光 ====================
-const ambientLight = new THREE.AmbientLight(0x404060, 0.8);
+// ==================== 灯光系统（无天花板展厅均匀照明）====================
+
+// 基础环境光：高亮度中性白，保证室内整体明亮无死黑
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
 scene.add(ambientLight);
 
-const dirLight = new THREE.DirectionalLight(0xfff5e0, 1.2);
-dirLight.position.set(5, 12, 4);
-dirLight.castShadow = true;
-dirLight.shadow.mapSize.set(1024, 1024);
-dirLight.shadow.camera.near = 0.5;
-dirLight.shadow.camera.far = 20;
-dirLight.shadow.camera.left = -8;
-dirLight.shadow.camera.right = 8;
-dirLight.shadow.camera.top = 8;
-dirLight.shadow.camera.bottom = -8;
+// 半球光：模拟天空/地面自然漫射，上亮下暗的柔和过渡
+const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
+hemiLight.position.set(0, 10, 0);
+scene.add(hemiLight);
+
+// 主漫射光（模拟天窗自然光）：从上方均匀洒下，不产生硬阴影
+const dirLight = new THREE.DirectionalLight(0xfffaf0, 0.8);
+dirLight.position.set(2, 8, 3);
+dirLight.castShadow = false;  // 展厅内几乎无阴影
 scene.add(dirLight);
 
-const backLight = new THREE.PointLight(0xcc8855, 0.5);
-backLight.position.set(-3, 2, -4);
-scene.add(backLight);
+// 室内补光1：左侧墙壁反射光
+const fillLight1 = new THREE.PointLight(0xfff5e8, 0.4);
+fillLight1.position.set(-4, 3, 0);
+scene.add(fillLight1);
 
-const fillLight = new THREE.PointLight(0x4488ff, 0.4);
-fillLight.position.set(4, 3, 5);
-scene.add(fillLight);
+// 室内补光2：右侧墙壁反射光
+const fillLight2 = new THREE.PointLight(0xfff5e8, 0.4);
+fillLight2.position.set(4, 3, 0);
+scene.add(fillLight2);
 
+// 室内补光3：深处补光，避免走廊/深处变暗
+const deepLight = new THREE.PointLight(0xfff0e0, 0.3);
+deepLight.position.set(0, 3, -6);
+scene.add(deepLight);
+
+// 外部暗角光：从展厅外缘打冷暗光，形成"外暗内亮"的空间层次
+const outerDarkLight = new THREE.PointLight(0x334455, 0.2);
+outerDarkLight.position.set(8, 2, 8);
+scene.add(outerDarkLight);
+
+// 网格辅助线
 const gridHelper = new THREE.GridHelper(20, 20, 0x88aaff, 0x4466aa);
 gridHelper.position.y = -0.5;
 scene.add(gridHelper);
-
-const smLight = new THREE.PointLight(0xcc8855, 0.5);
-smLight.position.set(7, -1, 0);
-scene.add(smLight);
 
 // ==================== 文物数据 ====================
 let artifactsInfo = {
     Mesh_0: { name: "螺钿云龙纹圆盒", era: "清代·乾隆年制", collectionId: "M00123", description: "盒面嵌螺钿云龙纹，片片贝母流光溢彩。" },
     Mesh_0001: { name: "螺钿人物故事长方盒", era: "明代·天启年间", collectionId: "M00456", description: "描绘《西厢记》场景，螺片细密，工艺精湛。" }
 };
+
+// ==================== 展厅图片数据 ====================
+// 一张墙面原图，可以对应多张详情图
+const exhibitionImages = [
+    {
+        id: 'image1',
+
+        // 墙上正常显示的原图
+        original: './images/bed.jpg',
+
+        // 点击后显示的详情图
+        details: [
+            './images/bed2.jpg',
+           // './images/bed-detail2.jpg'
+        ]
+    },
+
+    // 第二张图片，暂时可以先不使用
+    {
+        id: 'image2',
+        original: './images/chair.jpg',
+        details: [
+            './images/chair2.jpg',
+           // './images/image2-detail2.jpg'
+        ]
+    }
+];
+
+console.log('展厅图片数据:', exhibitionImages);
+
+// 检查展厅图片数据是否正确
+exhibitionImages.forEach(image => {
+    console.log(
+        `图片 ${image.id}：原图 = ${image.original}，详情图数量 = ${image.details.length}`
+    );
+});
+
+const imageBoards = [];// 保存所有已经创建的图片展板
+const imageTextureLoader = new THREE.TextureLoader();// 图片加载器
+function createImageBoard(imageData, position) {// 创建一张展厅图片
+    // 创建一个暂时的几何体
+    // 后面会根据图片实际比例自动调整
+    const geometry = new THREE.PlaneGeometry(2.4, 1.6);
+    // 先创建一个透明材质
+    const material = new THREE.MeshBasicMaterial({
+        transparent: true,
+        side: THREE.DoubleSide
+    });
+    const board = new THREE.Mesh(geometry, material);
+    // 图片的位置
+    board.position.copy(position);
+    // 给这个展板一个明确的名字
+    board.name = `ExhibitionImage_${imageData.id}`;
+    // 自定义数据
+    board.userData.isExhibitionImage = true;
+    board.userData.imageId = imageData.id;
+    board.userData.imageData = imageData;
+    // 加载原图
+    imageTextureLoader.load(
+        imageData.original,
+        (texture) => {
+            // 图片颜色空间设置
+            texture.colorSpace = THREE.SRGBColorSpace;
+            // 纹理过滤
+            texture.minFilter = THREE.LinearMipmapLinearFilter;
+            texture.magFilter = THREE.LinearFilter;
+            texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+            // 把图片放进材质
+            material.map = texture;
+            material.needsUpdate = true;
+
+            // 根据图片真实比例调整展板
+
+            const imageWidth = texture.image.width;
+            const imageHeight = texture.image.height;
+            if (imageWidth && imageHeight) {
+                const aspect = imageWidth / imageHeight;
+                // 固定高度
+                const targetHeight = 1.6;
+                // 根据原图比例计算宽度
+                const targetWidth = targetHeight * aspect;
+                board.scale.set(
+                    targetWidth / 2.4,
+                    targetHeight / 1.6,
+                    1
+                );
+            }
+
+            console.log(
+                `✅ 图片展板加载成功：${imageData.id}`,
+                `${imageWidth} × ${imageHeight}`
+            );
+        },
+
+        undefined,
+
+        (error) => {
+            console.error(
+                `❌ 图片加载失败：${imageData.original}`,
+                error
+            );
+        }
+    );
+
+    // 加入场景
+    scene.add(board);
+
+    // 保存到图片展板数组
+    imageBoards.push({
+        id: imageData.id,
+        data: imageData,
+        board: board
+    });
+
+    return board;
+}
+// image1 的位置
+createImageBoard(
+    exhibitionImages[0],
+    new THREE.Vector3(-3, 2.0, -3)
+);
+
+// image2 的位置
+createImageBoard(
+    exhibitionImages[1],
+    new THREE.Vector3(3, 2.0, -3)
+);
+
+
 
 const artifactItems = [];
 
@@ -394,13 +560,22 @@ function wrapText(ctx, text, x, y, maxW, lineHeight) {
 }
 
 // ==================== 加载模型 ====================
-const loader = new GLTFLoader();
-loader.load('models/博物馆test3.0.glb',
+// 获取加载面板元素（新增）
+const loadingText = document.getElementById('loading-text');
+const loadingDetail = document.getElementById('loading-detail');
+const loadingPanel = document.getElementById('loading-panel');
+
+loader.load('models/tes.glb',
+    // ========== 1. 加载成功 ==========
     (gltf) => {
+        loadingText.textContent = '✅ 模型加载完成';
+        loadingDetail.textContent = '正在渲染场景...';
+        
         const model = gltf.scene;
         model.position.set(0, 0, 0);
         model.scale.set(1, 1, 1);
         scene.add(model);
+
 
         const allMeshNames = [];
         model.traverse(c => {
@@ -408,67 +583,109 @@ loader.load('models/博物馆test3.0.glb',
                 allMeshNames.push(c.name);
                 c.castShadow = true;
                 c.receiveShadow = true;
+
+                // ========== 纹理过滤与色彩空间修复（消除摩尔纹）==========
+                if (c.material) {
+                    const materials = Array.isArray(c.material) ? c.material : [c.material];
+                    materials.forEach(mat => {
+                        for (const key in mat) {
+                            const value = mat[key];
+                            if (value && value.isTexture) {
+                                value.minFilter = THREE.LinearMipmapLinearFilter;
+                                value.magFilter = THREE.LinearFilter;
+                                value.anisotropy = renderer.capabilities.getMaxAnisotropy();
+                                value.colorSpace = THREE.SRGBColorSpace;
+                            }
+                        }
+                    });
+                }
+                // =========================================================
+
             }
         });
         console.log('===== 模型子物体清单 =====');
         console.log(allMeshNames.join(', '));
         console.log('==========================');
 
+    
         const detectedArtifacts = [];
-        const presetKeys = Object.keys(artifactsInfo);
-        
-        model.traverse(c => {
-            if (!c.isMesh) return;
-            
-            let key = c.name;
-            let data = artifactsInfo[key];
-            
-            if (!data) {
-                const lowerName = c.name.toLowerCase();
-                const matchKey = presetKeys.find(k => k.toLowerCase() === lowerName);
-                if (matchKey) {
-                    key = matchKey;
-                    data = artifactsInfo[key];
-                }
-            }
-            
-            if (!data && c.name.length > 2 && !c.name.toLowerCase().includes('grid') && !c.name.toLowerCase().includes('helper')) {
-                data = {
-                    name: c.name,
-                    era: "未知年代",
-                    collectionId: "未编号",
-                    description: "自动探测到的展品，请在代码中补充详细信息。"
-                };
-                artifactsInfo[c.name] = data;
-                detectedArtifacts.push(c.name);
-            }
+const presetKeys = Object.keys(artifactsInfo);
 
-            if (data) {
-                const div = document.createElement('div');
-                div.className = 'artifact-label';
-                div.innerHTML = `
-                    <div class="title">${data.name}</div>
-                    <div class="detail">年代：${data.era}</div>
-                    <div class="detail">馆藏号：${data.collectionId}</div>
-                    <div class="desc">${data.description}</div>
-                `;
-                div.style.opacity = '0';
-                const label = new CSS2DObject(div);
-                const box = new THREE.Box3().setFromObject(c);
-                const hh = box.max.y - box.min.y;
-                label.position.copy(c.position);
-                label.position.y += hh / 2 + 0.4;
-                scene.add(label);
+// 按"文物根节点"（model 的直接子节点）分组
+model.children.forEach(root => {
+    // 收集这个 Empty/Group 下的所有 Mesh
+    const meshes = [];
+    root.traverse(c => { if (c.isMesh) meshes.push(c); });
+    if (meshes.length === 0) return; // 纯空物体，跳过
 
-                const vrLabel = createVRLabel(data);
-                vrLabel.position.copy(c.position);
-                vrLabel.position.y += hh / 2 + 0.6;
-                vrLabel.visible = false;
-                scene.add(vrLabel);
+    // 匹配文物数据：优先用父级名，再用子 Mesh 名
+    let key = root.name;
+    let data = artifactsInfo[key];
 
-                artifactItems.push({ mesh: c, label, vrLabel, data });
+    if (!data) {
+        for (const mesh of meshes) {
+            if (artifactsInfo[mesh.name]) {
+                key = mesh.name;
+                data = artifactsInfo[key];
+                break;
             }
+            const lowerName = mesh.name.toLowerCase();
+            const matchKey = presetKeys.find(k => k.toLowerCase() === lowerName);
+            if (matchKey) {
+                key = matchKey;
+                data = artifactsInfo[key];
+                break;
+            }
+        }
+    }
+
+    // 没匹配到就自动生成
+    if (!data && root.name.length > 2 && !root.name.toLowerCase().includes('grid') && !root.name.toLowerCase().includes('helper')) {
+        data = {
+            name: root.name,
+            era: "未知年代",
+            collectionId: "未编号",
+            description: "自动探测到的展品，请在代码中补充详细信息。"
+        };
+        artifactsInfo[root.name] = data;
+        detectedArtifacts.push(root.name);
+    }
+
+    if (data) {
+        // 创建标签（基于整个文物的包围盒）
+        const div = document.createElement('div');
+        div.className = 'artifact-label';
+        div.innerHTML = `
+            <div class="title">${data.name}</div>
+            <div class="detail">年代：${data.era}</div>
+            <div class="detail">馆藏号：${data.collectionId}</div>
+            <div class="desc">${data.description}</div>
+        `;
+        div.style.opacity = '0';
+        const label = new CSS2DObject(div);
+        const box = new THREE.Box3().setFromObject(root);
+        const hh = box.max.y - box.min.y;
+        label.position.copy(root.position);
+        label.position.y += hh / 2 + 0.4;
+        scene.add(label);
+
+        const vrLabel = createVRLabel(data);
+        vrLabel.position.copy(root.position);
+        vrLabel.position.y += hh / 2 + 0.6;
+        vrLabel.visible = false;
+        scene.add(vrLabel);
+
+        // 关键改动：存的是 root（整个文物），不是单个 mesh
+        artifactItems.push({ 
+            root: root,        // 文物根节点（Empty/Group）
+            meshes: meshes,    // 它下面的所有 Mesh（用于射线检测）
+            label, 
+            vrLabel, 
+            data 
         });
+    }
+});
+
 
         if (detectedArtifacts.length > 0) {
             console.warn('⚠️ 以下文物未在 artifactsInfo 中预设，已自动探测:', detectedArtifacts);
@@ -476,11 +693,45 @@ loader.load('models/博物馆test3.0.glb',
         }
 
         console.log(`模型加载完成，共 ${artifactItems.length} 个文物`);
+
+        loadingText.textContent = '✅ 模型加载完成';
+loadingDetail.textContent = '场景已就绪';
+
+// 1秒后隐藏加载界面
+setTimeout(() => {
+    loadingPanel.style.display = 'none';
+}, 1000);
     },
+  
+
+
+    // ========== 2. 加载进度（新增）==========
     (xhr) => {
-        if (xhr.total) console.log(`加载进度: ${(xhr.loaded / xhr.total * 100).toFixed(1)}%`);
+        if (xhr.total) {
+            const percent = (xhr.loaded / xhr.total * 100).toFixed(1);
+            loadingText.textContent = '⏳ 正在加载模型';
+            loadingDetail.textContent = `${percent}%`;
+        }
+       
     },
-    (err) => console.error('模型加载失败:', err)
+
+    // ========== 3. 加载失败（新增）==========
+    (err) => {
+        loadingText.textContent = '❌ 加载失败';
+        loadingText.style.color = '#ff4444';
+        
+        let msg = err.message || '未知错误';
+        if (msg.includes('DRACO')) msg = 'Draco 解码器失败';
+        if (msg.includes('404')) msg = '模型文件找不到';
+        if (msg.includes('Meshopt')) msg = 'Meshopt 不支持';
+        if (msg.includes('TIMEOUT') || msg.includes('TIMED_OUT')) msg = '网络超时，请检查模型路径';
+        
+        loadingDetail.textContent = `错误：${msg}`;
+        loadingDetail.style.color = '#ff6666';
+        
+        console.error('完整错误:', err);
+    }
+
 );
 
 // ==================== 辅助函数：从指定手柄读取摇杆 ====================
@@ -647,38 +898,38 @@ function updateVR(delta) {
 
     player.position.y = 0;
 
-    // 飞行归位动画
+
+      // 飞行归位动画
     if (flyingItem) {
         flyProgress += delta * 2.5;
         if (flyProgress >= 1) {
-            flyingItem.mesh.position.copy(
-                flyingItem.mesh.parent.worldToLocal(flyTargetPos.clone())
+            flyingItem.root.position.copy(
+                flyingItem.root.parent.worldToLocal(flyTargetPos.clone())
             );
             flyingItem = null;
         } else {
             const worldPos = new THREE.Vector3().lerpVectors(flyStartPos, flyTargetPos, flyProgress);
-            flyingItem.mesh.position.copy(
-                flyingItem.mesh.parent.worldToLocal(worldPos)
+            flyingItem.root.position.copy(
+                flyingItem.root.parent.worldToLocal(worldPos)
             );
         }
     }
 
-    // 拿着物品时，更新物品的位置和旋转
+    // 拿着物品时，更新整个文物的位置和旋转
     if (heldItem) {
-        // 位置：固定在玩家前方
+        const root = heldItem.root;
         const playerForward = new THREE.Vector3(0, 0, -1).applyQuaternion(player.quaternion);
         playerForward.y = 0;
         playerForward.normalize();
         const targetPos = player.position.clone()
             .addScaledVector(playerForward, heldItem.offset.z)
             .add(new THREE.Vector3(0, heldItem.offset.y, 0));
-        heldItem.mesh.position.copy(targetPos);
+        root.position.copy(targetPos);
 
-        // 旋转：恢复原始世界旋转 + 用户累积的Y轴旋转
         const yRotQuat = new THREE.Quaternion().setFromAxisAngle(
             new THREE.Vector3(0, 1, 0), heldItemRotY
         );
-        heldItem.mesh.quaternion.copy(heldItemOriginalQuat).premultiply(yRotQuat);
+        root.quaternion.copy(heldItemOriginalQuat).premultiply(yRotQuat);
     }
 }
 
@@ -701,10 +952,19 @@ function updateInteraction() {
         raycaster.ray.direction.set(0, 0, -1).applyMatrix4(mat);
         
         // --- 检测文物 ---
-        const meshes = artifactItems.map(i => i.mesh);
-        const hits = raycaster.intersectObjects(meshes);
+         // --- 检测文物：检测所有根节点下的所有 Mesh ---
+        const allMeshes = [];
+        artifactItems.forEach(item => {
+            item.meshes.forEach(mesh => {
+                mesh._artifactItem = item;
+                allMeshes.push(mesh);
+            });
+        });
+        const hits = raycaster.intersectObjects(allMeshes);
         const isHit = hits.length > 0 && hits[0].distance < 8;
-        
+
+
+
         // --- 新增：检测视频屏幕 ---
         const vHits = raycaster.intersectObject(videoScreen);
         const isVideoHit = vHits.length > 0 && vHits[0].distance < 10;
@@ -724,7 +984,7 @@ function updateInteraction() {
         
         if (isVideoHit) videoHit = true;
         else if (isHit && !hitItem) {
-            hitItem = artifactItems.find(i => i.mesh === hits[0].object);
+            hitItem = hits[0].object._artifactItem;
         }
     }
     
@@ -741,7 +1001,7 @@ function updateInteraction() {
     
     if (hitItem && hitItem.vrLabel && heldItem !== hitItem) {
         hitItem.vrLabel.visible = true;
-        const pos = hitItem.mesh.position.clone();
+        const pos = hitItem.root.position.clone();
         pos.y += 0.6;
         hitItem.vrLabel.position.copy(pos);
         hitItem.vrLabel.lookAt(camera.position);
@@ -755,10 +1015,18 @@ function findHitItem(controller) {
     raycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
     raycaster.ray.direction.set(0, 0, -1).applyMatrix4(mat);
 
-    const meshes = artifactItems.map(i => i.mesh);
-    const hits = raycaster.intersectObjects(meshes);
+    // 收集所有文物根节点下的所有 Mesh
+    const allMeshes = [];
+    artifactItems.forEach(item => {
+        item.meshes.forEach(mesh => {
+            mesh._artifactItem = item;  // 临时绑定，方便找回文物
+            allMeshes.push(mesh);
+        });
+    });
+
+    const hits = raycaster.intersectObjects(allMeshes);
     if (hits.length === 0 || hits[0].distance > 8) return null;
-    return artifactItems.find(i => i.mesh === hits[0].object);
+    return hits[0].object._artifactItem;  // 返回整个文物，不是单个 Mesh
 }
 
 // 检测手柄是否指着视频屏幕
@@ -812,21 +1080,20 @@ function onVRSelectEnd(event) {
 
 function grabItem(item) {
     heldItem = item;
-    heldItemOriginalParent = item.mesh.parent;
-    item.mesh.updateWorldMatrix(true, false);
-    heldItemOriginalWorldMatrix.copy(item.mesh.matrixWorld);
+    const root = item.root;  // 抓起整个文物父级
+    
+    heldItemOriginalParent = root.parent;
+    root.updateWorldMatrix(true, false);
+    heldItemOriginalWorldMatrix.copy(root.matrixWorld);
+    heldItemOriginalQuat.copy(root.quaternion);
+    heldItemRotY = 0;
 
-    // 保存原始世界旋转
-    heldItemOriginalQuat.copy(item.mesh.quaternion);
-    heldItemRotY = 0;   // 重置旋转累积
+    // 把整个 Empty/Group 从模型里摘出来，挂到场景根下
+    heldItemOriginalParent.remove(root);
+    scene.add(root);
 
-    // 从原父级移出，挂到 scene
-    heldItemOriginalParent.remove(item.mesh);
-    scene.add(item.mesh);
-
-    // 设置偏移（你可以修改这里的数值调整位置）
     if (!heldItem.offset) {
-        heldItem.offset = new THREE.Vector3(0, 0.8, 0.6); // (左右, 高度, 前后)
+        heldItem.offset = new THREE.Vector3(0, 0.8, 0.6);
     }
 
     if (item.vrLabel) item.vrLabel.visible = false;
@@ -835,17 +1102,18 @@ function grabItem(item) {
 function dropItem() {
     if (!heldItem) return;
     const item = heldItem;
+    const root = item.root;
 
-    item.mesh.getWorldPosition(flyStartPos);
+    root.getWorldPosition(flyStartPos);
     flyTargetPos.setFromMatrixPosition(heldItemOriginalWorldMatrix);
 
-    camera.remove(item.mesh);
-    heldItemOriginalParent.add(item.mesh);
+    // 从场景摘下来，塞回原父级（model）
+    scene.remove(root);
+    heldItemOriginalParent.add(root);
 
     flyingItem = item;
     flyProgress = 0;
 
-    // 清除抓取状态
     heldItem = null;
     heldItemOriginalParent = null;
     heldController = null;
@@ -855,12 +1123,16 @@ function dropItem() {
 function forceDropItem() {
     if (!heldItem) return;
     const item = heldItem;
-    camera.remove(item.mesh);
-    heldItemOriginalParent.add(item.mesh);
+    const root = item.root;
+    
+    scene.remove(root);
+    heldItemOriginalParent.add(root);
     const localPos = heldItemOriginalParent.worldToLocal(
         new THREE.Vector3().setFromMatrixPosition(heldItemOriginalWorldMatrix)
     );
-    item.mesh.position.copy(localPos);
+    root.position.copy(localPos);
+    root.quaternion.copy(heldItemOriginalQuat);
+    
     heldItem = null;
     heldItemOriginalParent = null;
     heldController = null;
