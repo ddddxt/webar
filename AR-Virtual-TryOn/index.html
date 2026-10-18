@@ -1,0 +1,85 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#0b1629">
+  <title>AR虚拟试戴 一钿一世界</title>
+  <link rel="stylesheet" href="/src/style.css">
+</head>
+<body class="tryon-page">
+  <svg class="icon-definitions" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="m10 5-7 7 7 7M3 12h18"/></symbol>
+    <symbol id="i-camera" viewBox="0 0 24 24"><path d="M8 5 6 8H3v12h18V8h-3l-2-3Z"/><circle cx="12" cy="14" r="4"/></symbol>
+    <symbol id="i-switch" viewBox="0 0 24 24"><path d="M4 8a8 8 0 0 1 14-3l2 3M20 3v5h-5M20 16A8 8 0 0 1 6 19l-2-3M4 21v-5h5"/></symbol>
+    <symbol id="i-mirror" viewBox="0 0 24 24"><path d="M12 3v3m0 3v6m0 3v3M3 6l6 3v6l-6 3ZM21 6l-6 3v6l6 3Z"/></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24"><path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5ZM20 2v4m-2-2h4"/></symbol>
+    <symbol id="i-face" viewBox="0 0 24 24"><path d="M3 8V3h5m8 0h5v5m0 8v5h-5m-8 0H3v-5M8 10h.01M16 10h.01M8 15q4 4 8 0"/></symbol>
+    <symbol id="i-size" viewBox="0 0 24 24"><path d="M9 3H3v6m0-6 7 7m5 11h6v-6m0 6-7-7M15 3h6v6M9 21H3v-6"/></symbol>
+    <symbol id="i-position" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M8 7l4-4 4 4M8 17l4 4 4-4M7 8l-4 4 4 4M17 8l4 4-4 4"/></symbol>
+    <symbol id="i-rotate" viewBox="0 0 24 24"><path d="M20 9a8 8 0 1 0 0 6M20 3v6h-6"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7Z"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="cloud-corner" viewBox="0 0 64 64"><path d="M4 57V17Q4 4 17 4h40M12 46V22q0-10 10-10h24M12 32h10q12 0 12-10 0-6-6-6-5 0-5 5 0 4 4 4M32 12v10q0 12-10 12-6 0-6-6 0-5 5-5 4 0 4 4"/></symbol>
+  </defs></svg>
+  <a class="back-button" href="http://127.0.0.1:5500/world/world.html#craft" aria-label="返回饰境"><svg class="icon" aria-hidden="true"><use href="#i-arrow"/></svg></a>
+  <main class="page">
+    <section class="page-heading" aria-labelledby="page-title">
+      <div class="title-line"></span><h1 id="page-title">AR 虚拟试戴</h1></span></div>
+      <p class="heading-description">以螺钿之美，点亮东方雅韵</p>
+    </section>
+    <div class="tryon-layout">
+      <section class="preview-section" aria-label="AR 实时试戴预览">
+        <!-- <div class="section-heading preview-heading"><span></span>流光入镜</span><span class="section-english">LIVE PREVIEW</span></div> -->
+        <div class="camera-frame">
+          <div id="camera-container">
+            <video id="video" autoplay playsinline muted></video>
+            <canvas id="canvas"></canvas>
+            <canvas id="three-canvas"></canvas>
+            <div class="status-pill"><span class="status-dot" aria-hidden="true"></span><span id="status" role="status" aria-live="polite">正在初始化...</span></div>
+            <div class="camera-tools" aria-label="预览工具">
+              <button class="tool-button" type="button" aria-disabled="true" aria-label="切换镜头"><svg class="icon"><use href="#i-switch"/></svg><span>切换镜头</span></button>
+              <button class="tool-button" type="button" aria-disabled="true" aria-label="镜像模式"><svg class="icon"><use href="#i-mirror"/></svg><span>镜像模式</span></button>
+              <button class="tool-button" type="button" aria-disabled="true" aria-label="美颜"><svg class="icon"><use href="#i-spark"/></svg><span>美颜</span></button>
+            </div>
+            <p class="camera-guidance"><svg class="icon"><use href="#i-face"/></svg>请正对摄像头，体验虚拟试戴</p>
+          </div>
+          <svg class="frame-corner corner-tl" aria-hidden="true"><use href="#cloud-corner"/></svg><svg class="frame-corner corner-tr" aria-hidden="true"><use href="#cloud-corner"/></svg><svg class="frame-corner corner-bl" aria-hidden="true"><use href="#cloud-corner"/></svg><svg class="frame-corner corner-br" aria-hidden="true"><use href="#cloud-corner"/></svg>
+        </div>
+       
+      </section>
+      <aside class="accessory-panel" aria-label="饰品与试戴设置">
+        <section aria-labelledby="selection-title">
+          <div class="section-heading"><h2 id="selection-title">选择饰品</h2><button class="text-button" type="button" aria-disabled="true">查看更多 <span aria-hidden="true">›</span></button></div>
+          <p class="section-description">拾一抹贝光，赴一场东方之约</p>
+          <div class="accessory-grid">
+            <button class="accessory-card is-selected" type="button" aria-disabled="true" aria-label="发夹，流光贝影，默认选中"><span class="selected-mark"><svg class="icon"><use href="#i-check"/></svg></span><img src="/assets/hair-clip.svg" alt="螺钿发夹概念示意图"><span class="accessory-name">发夹</span><span class="accessory-subtitle">流光贝影</span></button>
+            <button class="accessory-card" type="button" aria-disabled="true"><img src="/assets/hair-pin.svg" alt="螺钿发簪概念示意图"><span class="accessory-name">发簪</span><span class="accessory-subtitle">清雅如兰</span></button>
+            <button class="accessory-card" type="button" aria-disabled="true"><img src="/assets/earrings.svg" alt="螺钿耳饰概念示意图"><span class="accessory-name">耳饰</span><span class="accessory-subtitle">珠光摇曳</span></button>
+            <button class="accessory-card" type="button" aria-disabled="true"><img src="/assets/headpiece.svg" alt="螺钿头饰概念示意图"><span class="accessory-name">头饰</span><span class="accessory-subtitle">繁花映月</span></button>
+          </div>
+
+          <div class="selected-accessory"><span class="selection-index">01</span><div><h3>流光贝影</h3><p>方寸之间，藏一片山海流光。</p></div><span class="material-tag">螺钿发夹</span></div>
+        </section>
+        <section class="adjustment-section" aria-labelledby="adjustment-title">
+          <div class="section-heading"><h2 id="adjustment-title">精细调节</h2><button class="text-button" type="button" aria-disabled="true"><svg class="icon"><use href="#i-rotate"/></svg>重置</button></div>
+          <div class="adjustment-list">
+            <label class="adjustment-row"><svg class="icon"><use href="#i-size"/></svg><span>大小</span><input type="range" min="50" max="150" value="100" disabled aria-label="大小（静态展示）"><span class="adjustment-value">100%</span></label>
+            <label class="adjustment-row"><svg class="icon"><use href="#i-position"/></svg><span>位置</span><input type="range" min="-50" max="50" value="0" disabled aria-label="位置（静态展示）"><span class="adjustment-value">0</span></label>
+            <label class="adjustment-row"><svg class="icon"><use href="#i-rotate"/></svg><span>旋转</span><input type="range" min="-180" max="180" value="0" disabled aria-label="旋转（静态展示）"><span class="adjustment-value">0°</span></label>
+          </div>
+        </section>
+        <div class="action-section">
+          <button class="primary-button" type="button" aria-disabled="true"><svg class="icon"><use href="#i-play"/></svg>开始试戴</button>
+          <div class="secondary-actions"><button class="secondary-button" type="button" aria-disabled="true"><svg class="icon"><use href="#i-camera"/></svg>拍照保存</button><button class="secondary-button" type="button" aria-disabled="true"><svg class="icon"><use href="#i-switch"/></svg>重新选择</button></div>
+        </div>
+        <div class="panel-signature"><span></span><svg class="icon"><use href="#i-spark"/></svg><p>千年匠心，此刻相映</p><span></span></div>
+      </aside>
+    </div>
+    <footer class="page-footer"><span>一钿一世界</span>
+        <span>让传统之美，在此刻生辉</span>
+  </main>
+  <script type="module" src="/src/return-nav.js"></script>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
